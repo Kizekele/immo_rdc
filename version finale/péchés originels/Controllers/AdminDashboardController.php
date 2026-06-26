@@ -7,7 +7,6 @@ use App\Models\Parcelle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Exception;
-use App\Models\User;
 
 class AdminDashboardController extends Controller
 {
@@ -31,33 +30,19 @@ class AdminDashboardController extends Controller
             ? round(($total_encaisse_global / $total_attendu_global) * 100) 
             : 0;
 
-        $clients = User::with(['parcelles', 'profil'])->where('role', '!=', 'administrateur')->get();
-    
-        
-
         // 5. Récupération des paiements en attente avec eager loading
         $paiements = Paiement::with(['user.profil', 'parcelle'])
             ->where('statut', 'en_attente')
             ->orderBy('created_at', 'desc')
             ->get();
 
-        $suiviGlobal = Parcelle::with(['user.profil'])->whereNotNull('user_id')->get();
-        foreach ($suiviGlobal as $parcelle) {
-            $parcelle->somme_payee = Paiement::where('parcelle_id', $parcelle->id)
-                ->where('statut', 'valide')
-                ->sum('montant_paye');
-
         return view('dashboard-admin', compact(
             'total_attendu_global',
             'total_encaisse_global',
             'total_attente_global',
             'pct_encaisse',
-            'paiements',
-            'clients',
-            'suiviGlobal'
+            'paiements'
         ));
-
-        
 
         //evolution individuelle des clients
         $historique = Paiement::with(['user', 'parcelle'])
@@ -73,7 +58,7 @@ class AdminDashboardController extends Controller
 
         return view('dashboard-admin', compact('total_attendu_global', 'total_encaisse_global', 'total_attente_global', 'pct_encaisse', 'paiements', 'historique', 'paiementsIndividuel'));
 
-        }}
+    }
 
     public function traitementAction(Request $request, $id, $action)
     {
@@ -141,21 +126,5 @@ class AdminDashboardController extends Controller
                 'error'   => config('app.debug') ? $e->getMessage() : 'Une erreur interne est survenue.'
             ], 500);
         }
-
-        
-    }
-    public function destroyClient($id)
-    {
-        $client = User::findOrFail($id);
-
-        // Étape A : Libérer les parcelles avant de supprimer l'utilisateur
-        // Sinon, vous risquez une erreur de contrainte de clé étrangère
-        Parcelle::where('user_id', $client->id)
-            ->update(['user_id' => null, 'statut' => 'disponible']);
-
-        // Étape B : Supprimer l'utilisateur
-        $client->delete();
-
-        return back()->with('success', 'Client supprimé avec succès.');
     }
 }

@@ -209,26 +209,47 @@
             <h2 class="text-white font-bold text-xl">Envoyer ma preuve de paiement</h2>
             <button onclick="closeModal('modal-preuve')" class="text-slate-400 hover:text-white text-2xl font-bold">✕</button>
         </div>
+
         <form action="{{ route('dashboard-acheteur.store') }}" method="POST" enctype="multipart/form-data" class="space-y-4">
             @csrf
+            
+            {{-- Parcelle --}}
             <div>
                 <label class="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">Parcelle concernée</label>
-                <select name="parcelle_id" required class="w-full bg-slate-950/60 border border-white/10 rounded-xl p-4 text-white text-sm">
+                <select name="parcelle_id" required class="w-full bg-slate-950/60 border border-white/10 rounded-xl p-4 text-white text-sm focus:border-emerald-500 outline-none">
                     @foreach($parcelles as $p)
                         <option value="{{ $p->id }}">{{ $p->titre }} — {{ $p->localisation }}</option>
                     @endforeach
                 </select>
             </div>
+
+            {{-- Mode de paiement (Intégré à l'intérieur du formulaire) --}}
+            <div>
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">Mode de paiement</label>
+                <select name="compte_mobile_id" required class="w-full font-mono bg-slate-950/60 border border-white/10 rounded-xl p-4 text-white text-sm focus:border-emerald-500 outline-none">
+                    <option value="" class="text-slate-900">Sélectionnez un mode de paiement</option>
+                    @foreach($comptesMobiles as $compte)
+                        <option value="{{ $compte->id }}" class="text-slate-900">
+                            {{ str_pad("Opérateur: " . $compte->operateur, 80) }}  
+                            {{ str_pad("Numéro: " . $compte->numero, 80) }} 
+                            Nom: {{ $compte->nom_compte }}  
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+
+            {{-- Photo du reçu --}}
             <div>
                 <label class="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">Photo de votre reçu / virement</label>
                 <div id="drop-zone"
                     onclick="document.getElementById('file-input').click()"
-                    class="border-2 border-dashed border-slate-700 p-8 rounded-2xl text-center cursor-pointer hover:border-emerald-500 transition">
+                    class="border-2 border-dashed border-slate-700 p-8 rounded-2xl text-center cursor-pointer hover:border-emerald-500 transition bg-slate-950/30">
                     <input type="file" id="file-input" name="preuve_photo" class="hidden" accept="image/*" onchange="updateFileName(this)">
                     <div class="text-3xl mb-2">📷</div>
                     <span id="upload-text" class="text-slate-400 text-sm">Cliquez pour joindre la capture</span>
                 </div>
             </div>
+
             <button type="submit" class="w-full bg-emerald-500 py-4 rounded-xl font-extrabold text-slate-950 uppercase tracking-widest text-xs hover:bg-emerald-400 transition">
                 Valider le versement
             </button>

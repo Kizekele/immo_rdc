@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Parcelle extends Model
 {
@@ -13,9 +12,9 @@ class Parcelle extends Model
         'localisation',
         'prix_total',
         'mensualite',
+        'dimensions',
         'user_id',
         'statut',
-        'dimensions',
         'photo'
     ];
     public function acheteur()
@@ -27,8 +26,13 @@ class Parcelle extends Model
     {
         return $this->hasMany(Paiement::class);
     }
-    public function user(): BelongsTo
+    /**
+     * Relation : Une parcelle appartient à un utilisateur.
+     */
+    public function user()
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class);
     }
+
+   
 }

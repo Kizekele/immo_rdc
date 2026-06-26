@@ -6,6 +6,8 @@ use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\ParcelleController;
 use App\Http\Controllers\DashboardAcheteurController;
 use App\Http\Controllers\GestionClientController;
+use App\Http\Controllers\RapportController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -37,7 +39,7 @@ Route::middleware('guest')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth')->group(function () {
-    
+
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
     // Route Pivot : redirige vers l'espace approprié selon le rôle
@@ -56,28 +58,35 @@ Route::middleware('auth')->group(function () {
     Route::post('/parcelle/souscrire/{id}', [ParcelleController::class, 'souscrire'])->name('parcelle.souscrire');
 
     //---------------------------------------------------------
-    // Espace Administration (URL finale : /admin/dashboard)
+    // Espace Administration
     //---------------------------------------------------------
     Route::prefix('admin')->group(function () {
 
-   
-
+        // Dashboard principal (supporte ?mois=Janvier pour le filtre)
         Route::get('/dashboard', [AdminDashboardController::class, 'index'])->name('dashboard-admin');
-        
+
+        // Traitement paiements — maintenant avec upload photo obligatoire à l'approbation
         Route::post('/paiements/{id}/{action}', [AdminDashboardController::class, 'traitementAction'])
             ->where('action', 'approuver|refuser')
             ->name('admin.paiements.action');
-        
+
+        // Ajout parcelle (bug dimensions corrigé)
         Route::post('/parcelles', [AdminDashboardController::class, 'storeParcelle'])->name('admin.parcelles.store');
 
         Route::get('/parcelles-suivi', [ParcelleController::class, 'adminIndex'])->name('admin.parcelles.suivi');
 
+        // Gestion clients CRUD — avec route show pour détail client
         Route::resource('clients', GestionClientController::class);
 
-        
+        //confirmation paiement
+        Route::post('/admin/paiements/{id}/approuver', [AdminDashboardController::class, 'validerApprobation'])
+        ->name('admin.paiements.approuver');
 
-        Route::delete('/admin/clients/{id}', [AdminDashboardController::class, 'destroyClient'])
-            ->name('clients.destroy');
+
+        //pdf
+        Route::get('/admin/pdf/clients', [RapportController::class, 'imprimerClientsParcelles'])->name('pdf.clients');
+        Route::get('/admin/export/{type}', [AdminDashboardController::class, 'exportPdf'])
+            ->name('admin.export.pdf');
 
     });
 });

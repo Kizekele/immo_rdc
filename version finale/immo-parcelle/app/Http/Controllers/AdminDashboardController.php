@@ -4,14 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Paiement;
 use App\Models\Parcelle;
+use App\Models\CompteMobile;
+use Barryvdh\DomPDF\Facade\Pdf;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Exception;
-use App\Models\User;
 
 class AdminDashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         // Vérification simple du rôle
         if (auth()->user()->role !== 'administrateur') {
@@ -31,21 +33,37 @@ class AdminDashboardController extends Controller
             ? round(($total_encaisse_global / $total_attendu_global) * 100) 
             : 0;
 
-        $clients = User::with(['parcelles', 'profil'])->where('role', '!=', 'administrateur')->get();
-    
-        
-
         // 5. Récupération des paiements en attente avec eager loading
         $paiements = Paiement::with(['user.profil', 'parcelle'])
             ->where('statut', 'en_attente')
             ->orderBy('created_at', 'desc')
             ->get();
 
-        $suiviGlobal = Parcelle::with(['user.profil'])->whereNotNull('user_id')->get();
-        foreach ($suiviGlobal as $parcelle) {
-            $parcelle->somme_payee = Paiement::where('parcelle_id', $parcelle->id)
-                ->where('statut', 'valide')
-                ->sum('montant_paye');
+        $moisDisponibles = Paiement::distinct()->pluck('mois_concerne');
+
+        // Récupérer le filtre depuis la requête GET
+        $moisFiltre = $request->input('mois');
+
+        // Calcul du nombre de clients actifs (ex: nombre d'utilisateurs avec des parcelles)
+        $nb_clients_actifs = \App\Models\User::where('role', 'client')
+            ->whereHas('parcelles') 
+            ->count();
+        // Récupération de tous les utilisateurs avec le rôle 'client'
+        $clients = \App\Models\User::where('role', 'client')->get();
+
+        // Calcul des parcelles libres et du total
+        $nb_parcelles_libres = Parcelle::where('statut', 'disponible')->count();
+        $nb_parcelles_total = Parcelle::count();
+
+        // Récupération des parcelles avec leurs paiements pour le suivi
+        $suiviGlobal = Parcelle::with(['user.profil'])
+            ->withSum('paiements as somme_payee', 'montant_paye')
+            ->get();
+        // Récupération de l'historique complet des paiements/transactions
+        $historiqueTransactions = Paiement::with(['user.profil', 'parcelle'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
 
         return view('dashboard-admin', compact(
             'total_attendu_global',
@@ -53,27 +71,57 @@ class AdminDashboardController extends Controller
             'total_attente_global',
             'pct_encaisse',
             'paiements',
+            'moisDisponibles',
+            'moisFiltre',
+            'nb_clients_actifs',
             'clients',
-            'suiviGlobal'
+            'nb_parcelles_libres',
+            'nb_parcelles_total',
+            'suiviGlobal',
+            'historiqueTransactions'
         ));
 
+    }
+
+    public function exportPdf($type)
+    {
+        // On récupère les données dynamiquement
+        $data = match($type) {
+            'paiements' => ['paiements' => Paiement::all()],
+            'clients'   => ['clients'   => User::where('role', 'client')->get()],
+            'parcelles' => ['parcelles' => Parcelle::all()],
+            default     => abort(404)
+        };
+
+        // La vue est cherchée dans resources/views/pdf/{type}.blade.php
+        $pdf = Pdf::loadView("pdf.$type", $data);
         
+        return $pdf->download("Rapport_" . ucfirst($type) . "_" . date('Y-m-d') . ".pdf");
+    }
+    public function validerApprobation(Request $request, $id)
+    {
+        // 1. Validation : la photo est obligatoire
+        $request->validate([
+            'preuvePhoto_admin' => 'required|image|mimes:jpeg,png,jpg|max:2048',
+        ]);
 
-        //evolution individuelle des clients
-        $historique = Paiement::with(['user', 'parcelle'])
-        ->orderBy('created_at', 'desc')
-        ->get()
-        ->groupBy('user_id');
+        $paiement = Paiement::findOrFail($id);
 
-        return view('dashboard-admin', compact('total_attendu_global', 'total_encaisse_global', 'total_attente_global', 'pct_encaisse', 'paiements', 'historique'));
+        // 2. Traitement de la photo
+        if ($request->hasFile('preuve_admin')) {
+            $path = $request->file('preuvePhoto_admin')->store('preuves_validation', 'public');
+            
+            // 3. Mise à jour du paiement
+            $paiement->update([
+                'statut'         => 'valide',
+                'preuvePhoto_admin'   => $path, // Assurez-vous que cette colonne existe dans votre table paiements
+                'valide_par'     => auth()->id(), // Optionnel : pour savoir quel admin a validé
+                'date_validation'=> now(),
+            ]);
+        }
 
-        $paiementsIndividuel = Paiement::with(['user', 'parcelle'])
-                    ->orderBy('created_at', 'desc')
-                    ->get();
-
-        return view('dashboard-admin', compact('total_attendu_global', 'total_encaisse_global', 'total_attente_global', 'pct_encaisse', 'paiements', 'historique', 'paiementsIndividuel'));
-
-        }}
+        return back()->with('success', 'Paiement approuvé et preuve enregistrée.');
+    }
 
     public function traitementAction(Request $request, $id, $action)
     {
@@ -103,7 +151,8 @@ class AdminDashboardController extends Controller
         $validated = $request->validate([
             'titre'        => 'required|string|max:255',
             'localisation' => 'required|string|max:255',
-            'prix'         => 'required|numeric|min:0', 
+            'dimensions'   => 'required|string|max:255',
+            'prix_total'         => 'required|numeric|min:0', 
             'mensualite'   => 'required|numeric|min:0',
             'photo'        => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
@@ -119,7 +168,8 @@ class AdminDashboardController extends Controller
             Parcelle::create([
                 'titre'        => $validated['titre'],
                 'localisation' => $validated['localisation'],
-                'prix_total'   => $validated['prix'],
+                'dimensions'   => $validated['dimensions'], // Optionnel
+                'prix_total'   => $validated['prix_total'],
                 'mensualite'   => $validated['mensualite'],
                 'statut'       => 'disponible',
                 'user_id'      => null,
@@ -141,21 +191,5 @@ class AdminDashboardController extends Controller
                 'error'   => config('app.debug') ? $e->getMessage() : 'Une erreur interne est survenue.'
             ], 500);
         }
-
-        
-    }
-    public function destroyClient($id)
-    {
-        $client = User::findOrFail($id);
-
-        // Étape A : Libérer les parcelles avant de supprimer l'utilisateur
-        // Sinon, vous risquez une erreur de contrainte de clé étrangère
-        Parcelle::where('user_id', $client->id)
-            ->update(['user_id' => null, 'statut' => 'disponible']);
-
-        // Étape B : Supprimer l'utilisateur
-        $client->delete();
-
-        return back()->with('success', 'Client supprimé avec succès.');
     }
 }
